@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="author" content="李欣">
+  <title>浏览器页面渲染</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+  <link rel="stylesheet" href="http://static.ppt.t.pt.miui.com/reveal.js/css/reveal.css">
+  <style type="text/css">
+      code{white-space: pre-wrap;}
+      span.smallcaps{font-variant: small-caps;}
+      span.underline{text-decoration: underline;}
+      div.column{display: inline-block; vertical-align: top; width: 50%;}
+  </style>
+  <link rel="stylesheet" href="http://static.ppt.t.pt.miui.com/reveal.js/css/theme/black.css" id="theme">
+  <!-- Printing and PDF exports -->
+  <script>
+    var link = document.createElement( 'link' );
+    link.rel = 'stylesheet';
+    link.type = 'text/css';
+    link.href = window.location.search.match( /print-pdf/gi ) ? 'http://static.ppt.t.pt.miui.com/reveal.js/css/print/pdf.css' : 'http://static.ppt.t.pt.miui.com/reveal.js/css/print/paper.css';
+    document.getElementsByTagName( 'head' )[0].appendChild( link );
+  </script>
+  <!--[if lt IE 9]>
+  <script src="http://static.ppt.t.pt.miui.com/reveal.js/lib/js/html5shiv.js"></script>
+  <![endif]-->
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+<section id="title-slide">
+  <h1 class="title">浏览器页面渲染</h1>
+  <p class="author">李欣</p>
+  <p class="date">2019-3-5</p>
+</section>
+
+<section id="section" class="slide level2">
+<h2></h2>
+<ul>
+<li class="fragment">进程和线程在浏览器内的分布</li>
+<li class="fragment">进程和线程怎样配合展现页面</li>
+<li class="fragment">renderer进程内部实现</li>
+<li class="fragment">处理用户交互</li>
+</ul>
+</section>
+<section id="进程和线程在浏览器内的分布" class="slide level2">
+<h2>1. 进程和线程在浏览器内的分布</h2>
+</section>
+<section id="应用启动后发生了什么" class="slide level2">
+<h2>应用启动后发生了什么？</h2>
+<p><img data-src="../img/confusing.gif" /></p>
+</section>
+<section id="section-1" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="https://developers.google.com/web/updates/images/inside-browser/part1/memory.svg" alt="分配进程" /><figcaption>分配进程</figcaption>
+</figure>
+</section>
+<section id="section-2" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="https://developers.google.com/web/updates/images/inside-browser/part1/workerprocess.svg" alt="进程通信" /><figcaption>进程通信</figcaption>
+</figure>
+</section>
+<section id="浏览器架构" class="slide level2">
+<h2>浏览器架构</h2>
+<figure>
+<img data-src="../img/single-process.png" alt="单进程" /><figcaption>单进程</figcaption>
+</figure>
+</section>
+<section id="section-3" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/processes-ipc.png" alt="多进程-ipc通信" /><figcaption>多进程-ipc通信</figcaption>
+</figure>
+</section>
+<section id="section-4" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/chrome-process.png" alt="chrome-浏览器架构" /><figcaption>chrome-浏览器架构</figcaption>
+</figure>
+</section>
+<section id="chrome" class="slide level2">
+<h2>chrome</h2>
+<ul>
+<li>browser进程
+<ul>
+<li>负责地址栏，书签栏，前进后退按钮等</li>
+<li>负责处理浏览器的一些不可见的底层操作，如网络请求和文件访问</li>
+</ul></li>
+<li>Renderer进程
+<ul>
+<li>负责一个 tab 内关于网页呈现的所有事情</li>
+</ul></li>
+<li>Plugin进程
+<ul>
+<li>负责控制一个网页用到的所有插件，如 flash</li>
+</ul></li>
+<li>GPU进程
+<ul>
+<li>负责处理 GPU 相关的任务</li>
+</ul></li>
+</ul>
+</section>
+<section id="section-5" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/browser-processes.png" alt="chrome process" /> - 不同进程负责的浏览器区域示意图</p>
+</section>
+<section id="section-6" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/chrome-processes-look.png" alt="chrome进程查看" /><figcaption>chrome进程查看</figcaption>
+</figure>
+</section>
+<section id="chrome-多进程优缺点" class="slide level2">
+<h2>chrome 多进程优缺点</h2>
+<ul>
+<li>优点：安全</li>
+<li><p>缺点：内存不共享</p></li>
+<li><p>限制最多进程数，由设备内存和CPU能力决定。达到限制时与前一个共用一个渲染进程。 不同性能的硬件 进程划分不同。</p></li>
+</ul>
+</section>
+<section id="section-7" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="https://developers.google.com/web/updates/images/inside-browser/part1/tabs.svg" alt="多进程优点" /><figcaption>多进程优点</figcaption>
+</figure>
+</section>
+<section id="section-8" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="https://developers.google.com/web/updates/images/inside-browser/part1/servicfication.svg" alt="chrome根据不同硬件分配进程·" /><figcaption>chrome根据不同硬件分配进程·</figcaption>
+</figure>
+</section>
+<section id="iframe渲染" class="slide level2">
+<h2>iframe渲染</h2>
+<ul>
+<li><a href="https://meltdownattack.com/">Meltdown and Spectre</a>: 读取本进程甚至其他进程内存空间(依赖高精度 timing)</li>
+<li>site Isolation 机制允许在同一个 Tab 下的跨站 iframe 使用单独的进程来渲染，这样会更为安全。chrome67开始默认使用。</li>
+</ul>
+</section>
+<section id="section-9" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/iframe-process.png" alt="site Isolation" /><figcaption>site Isolation</figcaption>
+</figure>
+</section>
+<section id="section-10" class="slide level2">
+<h2></h2>
+<ul>
+<li><p>Tab外的工作主要由browser进程掌控，browser对工作进行划分使用不同线程处理：</p>
+<ul>
+<li>UI thread ： 控制浏览器上的按钮及输入框；</li>
+<li>network thread: 处理网络请求，从网上获取数据；</li>
+<li>storage thread: 控制文件等的访问；</li>
+</ul></li>
+</ul>
+</section>
+<section id="进程和线程怎样配合展现页面" class="slide level2">
+<h2>2. 进程和线程怎样配合展现页面</h2>
+<p>浏览器进程对不同线程做分配 <img data-src="../img/browser-process.png" /></p>
+</section>
+<section id="how-page-shows" class="slide level2">
+<h2>How page shows?</h2>
+<p>在浏览器地址栏中输入 url 到页面展现的短短时间内浏览器究竟做了什么?</p>
+</section>
+<section id="section-11" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/input-handle.png" alt="判断是query还是URL？" /><figcaption>判断是query还是URL？</figcaption>
+</figure>
+</section>
+<section id="section-12" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/threads.png" alt="处理输入，开始导航" /> UI thread 通知 Network thread 加载相关信息</p>
+</section>
+<section id="section-13" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/network-get.png" alt="network线程读取响应内容" /> 判断响应内容的格式</p>
+</section>
+<section id="section-14" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/response-check.png" alt="检查响应内容" /><figcaption>检查响应内容</figcaption>
+</figure>
+</section>
+<section id="section-15" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/render.png" alt="查找渲染进程" /> 收到 Network thread 返回的数据后，UI thread 查找相关的渲染进程</p>
+</section>
+<section id="section-16" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/rendered.png" alt="确认导航" /> Browser Process 和 Renderer Process 通过 IPC 通信，请求 Renderer Process 渲染页面</p>
+</section>
+<section id="section-17" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/rendered-loaded.png" alt="加载完成" /> Renderer Process 发送 IPC 消息通知 browser process 页面已经加载完成</p>
+</section>
+<section id="section-18" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/beforeunload.png" alt="beforeunload" /> 浏览器进程发送 IPC 消息给渲染进程，通知要离开当前网站了</p>
+</section>
+<section id="section-19" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/unload.png" alt="unload" /> 浏览器进程发送 IPC 消息到新的渲染进程通知渲染新的页面，同时通知旧的渲染进程卸载</p>
+</section>
+<section id="section-20" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/service-worker.png" alt="service worker" /> Service Worker 依据具体情形做处理</p>
+</section>
+<section id="renderer进程" class="slide level2">
+<h2>3. renderer进程</h2>
+<ul>
+<li>主线程 Main thread</li>
+<li>worker线程 Worker thread</li>
+<li>合成线程 Compositor thread</li>
+<li>光栅线程 Raster thread</li>
+</ul>
+</section>
+<section id="section-21" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/render-process.png" alt="renderer 进程" /> 渲染进程包含的线程</p>
+</section>
+<section id="渲染流程" class="slide level2">
+<h2>渲染流程</h2>
+<ul>
+<li class="fragment">构建 DOM (DOM树)</li>
+<li class="fragment">加载次级的资源</li>
+<li class="fragment">JS 的下载与执行(<code>async</code> ,<code>defer</code>)</li>
+<li class="fragment">样式计算</li>
+<li class="fragment">获取布局</li>
+<li class="fragment">绘制各元素</li>
+<li class="fragment">合成帧</li>
+</ul>
+</section>
+<section id="section-22" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/dom-tree.png" alt="DOM树" /> 主线程解析html文件，创建dom树</p>
+</section>
+<section id="section-23" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/styles.png" alt="样式计算" /> 渲染进程主线程计算每一个元素节点的最终样式值</p>
+</section>
+<section id="section-24" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/layout-tree.png" alt="layout树" /> 主线程遍历 DOM 及 对应元素的样式，构建出布局树</p>
+</section>
+<section id="section-25" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/paint-record.png" alt="绘制记录" /> 主线程依据布局树构建绘制记录</p>
+</section>
+<section id="更新渲染管道是昂贵的" class="slide level2">
+<h2>更新渲染管道是昂贵的</h2>
+<p><img data-src="../img/update0.png" /></p>
+</section>
+<section id="section-26" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/update1.png" /></p>
+</section>
+<section id="section-27" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/update2.png" /> DOM+Style, Layout, and Paint trees in order it is generated</p>
+</section>
+<section id="section-28" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/jank1.png" alt="animation" /> Animation frames on a timeline</p>
+</section>
+<section id="section-29" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/jank2.png" alt="js-jank" /> Animation frames on a timeline, but one frame is blocked by JavaScript</p>
+</section>
+<section id="section-30" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/jank3.png" alt="rAF" /> Smaller chunks of JavaScript running on a timeline with animation frame</p>
+</section>
+<section id="section-31" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/layer-tree.png" alt="层树" /> 主线程遍历布局树生成层树</p>
+</section>
+<section id="section-32" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/raster-thread.png" alt="栅格化" /> 栅格线程会栅格化每一个磁贴并存储在 GPU 显存中</p>
+</section>
+<section id="section-33" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/GPU-render.png" alt="GPU" /> 合成器线程会发送合成帧给 GPU 渲染</p>
+</section>
+<section id="浏览器对事件的处理" class="slide level2">
+<h2>4.浏览器对事件的处理</h2>
+<ul>
+<li>在浏览器的看来，用户的所有手势都是输入，鼠标滚动，悬置，点击等等都是</li>
+<li>browser进程获取事件及位置，通知renderer进程</li>
+<li>renderer进程找到事件对象并执行绑定的相关处理</li>
+</ul>
+</section>
+<section id="section-34" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/events.png" alt="事件获取与处理" /> 事件从浏览器进程传送给渲染进程</p>
+</section>
+<section id="section-35" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/none-fast-event.png" alt="合成器通知主线程" /> 涉及 non-fast scrollable region 的事件，合成器线程会通知主线程进行相关处理</p>
+</section>
+<section id="section-36" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/none-fast-body.png" alt="事件委托" /> 由于事件绑定在最顶部，整个页面都成为了 non-fast scrollable region 处理： <code>passive: true</code></p>
+</section>
+<section id="section-37" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/find-event-target.png" alt="查找事件对象" /> 主线程依据绘制记录查找事件相关元素</p>
+</section>
+<section id="事件的优化" class="slide level2">
+<h2>事件的优化</h2>
+<figure>
+<img data-src="../img/events-improve.png" alt="事件" /><figcaption>事件</figcaption>
+</figure>
+</section>
+<section id="section-38" class="slide level2">
+<h2></h2>
+<p><img data-src="../img/events-coalesced.png" alt="合并连续事件" /> Chrome 会合并连续事件到下一帧触发 - getCoalescedEvents API 来获取组合的事件</p>
+</section>
+<section id="section-39" class="slide level2">
+<h2></h2>
+<figure>
+<img data-src="../img/eg-coalescedEvents.png" alt="合成事件api" /><figcaption>合成事件api</figcaption>
+</figure>
+</section>
+<section id="更多了解" class="slide level2">
+<h2>更多了解</h2>
+<ul>
+<li><a href="http://doc.t.pt.miui.com/miwebview/whitepaper/">小米内核白皮书</a></li>
+<li><a href="https://wiki.n.miui.com/pages/viewpage.action?pageId=135290668">内核之前的分享</a></li>
+<li><a href="https://wiki.n.miui.com/pages/viewpage.action?pageId=134826566">Sandbox Renderer 的多进程模式</a></li>
+<li><a href="https://developers.google.com/web/updates/2018/09/inside-browser-part1">谷歌开发者文档</a></li>
+<li><a href="http://ppt.t.pt.miui.com/lihuichao/ppt/pixel/">像素渲染分享</a></li>
+</ul>
+</section>
+<section id="qa" class="slide level2">
+<h2>Q&amp;A</h2>
+</section>
+    </div>
+  </div>
+
+  <script src="http://static.ppt.t.pt.miui.com/reveal.js/lib/js/head.min.js"></script>
+  <script src="http://static.ppt.t.pt.miui.com/reveal.js/js/reveal.js"></script>
+
+  <script>
+
+      // Full list of configuration options available at:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        // Push each slide change to the browser history
+        history: true,
+
+        // Optional reveal.js plugins
+        dependencies: [
+          { src: 'http://static.ppt.t.pt.miui.com/reveal.js/lib/js/classList.js', condition: function() { return !document.body.classList; } },
+          { src: 'http://static.ppt.t.pt.miui.com/reveal.js/plugin/zoom-js/zoom.js', async: true },
+          { src: 'http://static.ppt.t.pt.miui.com/reveal.js/plugin/notes/notes.js', async: true }
+        ]
+      });
+    </script>
+    </body>
+</html>
